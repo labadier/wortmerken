@@ -11,7 +11,7 @@ import sqlite3, os
 from utils import softmax, check_response, sample_word
 
 
-TOKEN: Final = "7251605109:AAFQDegRjUhXqN-FgkqWkR8BCHE5MyKoULg"
+TOKEN: Final = ""
 BOT_USERNAME: Final = "@WortMerkenBot"
 db_filename = 'wortmerken_new.db'
 
