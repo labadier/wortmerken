@@ -11,7 +11,6 @@ import sqlite3, os
 from utils import softmax, check_response, sample_word
 
 
-TOKEN: Final = ""
 BOT_USERNAME: Final = "@WortMerkenBot"
 db_filename = 'wortmerken_new.db'
 
@@ -37,9 +36,9 @@ async def scheduled_task(context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(rows) >= 5:
         context.application.user_data[user_id]['wating_user'] = True
         z = sample_word(user_id, db_filename=db_filename)
-        context.application.user_data[user_id]['answer_guessing'] = z[0]
+        context.application.user_data[user_id]['answer_guessing'] = z[-1]
         await context.bot.send_message(chat_id=context.job.chat_id, 
-                                       text=z[0])
+                                       text=f"{z[0]}\n|| {z[1]} ||", parse_mode="MarkdownV2")
     
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
@@ -87,8 +86,8 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Lets start guessing words! 🤓📚🔍✨")
         await asyncio.sleep(1)
         z = sample_word(user_id, db_filename=db_filename)
-        context.application.user_data[user_id]['answer_guessing'] = z[0]
-        await update.message.reply_text(z[0])
+        context.application.user_data[user_id]['answer_guessing'] = z[-1]
+        await update.message.reply_text(f"{z[0]}\n|| {z[1]} ||", parse_mode="MarkdownV2")
         
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("This is a help message")
@@ -167,7 +166,13 @@ def add_items(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     error =  None
     conn = sqlite3.connect(db_filename)
     cursor = conn.cursor()
+
+    #take the mean of every word in the db
+    cursor.execute(f"SELECT * FROM german_items WHERE user_id = '{user_id}'")
+    rows = cursor.fetchall()
+    mean_prompts = np.mean([i[3] for i in rows])
     
+    brand_new = []
     for j, item in enumerate(list_items):
 
         if len(item.split("-")) != 2:
@@ -180,14 +185,16 @@ def add_items(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         cursor.execute("SELECT id FROM german_items WHERE word = ? AND user_id = ?", (word.strip(), user_id))
         row = cursor.fetchall()
 
-        if row is None:
+        if not len(row):
             # Word does not exist, insert it
-            word_id = uuid.uuid4()
-            cursor.execute("INSERT INTO german_items (id, word, user_id, times_guessed) VALUES (?, ?, ?, ?)", (word_id, word.strip(), user_id, 0))
+            word_id = str(uuid.uuid4())
+            cursor.execute("INSERT INTO german_items (id, word, user_id, times_guessed) VALUES (?, ?, ?, ?)", (word_id, word.strip(), user_id, mean_prompts))
+            brand_new += ['']
         else:
             assert len(row) == 1
             word_id = row[0][0]
-        cui = uuid.uuid4()
+            brand_new += ['\+']
+        cui = str(uuid.uuid4())
         cursor.execute("INSERT INTO translations (id, source_word_id, translation) VALUES (?, ?, ?)", (cui, word_id, translation.strip()))
         
         conn.commit()
@@ -196,7 +203,7 @@ def add_items(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     conn.commit()
     conn.close()
 
-    success = '\n'.join([' > '.join(i.split('-')) for i in list_items[:error]])
+    success = '\n'.join([' \> '.join(i.split('-')) + j for i, j in zip(list_items[:error], brand_new)])
 
     if error is not None:
        if not len(success):
@@ -204,7 +211,7 @@ def add_items(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
        return [f"Invalid format in enty {error + 1}!\n\n {list_items[error]}\n\nPlease enter the pairs in the format: *word - translation*\n\n*You only have to re-enter the pairs from that line on.*",
           "*Successfully added pairs*:\n" + success]
     context.application.user_data[user_id]['add_items'] = False
-    return ["Done! ✅😎", "*Successfully added pairs*:\n" + success]
+    return ["Done\! ✅😎", "*Successfully added pairs*:\n" + success]
 
 def remove_item(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -215,7 +222,7 @@ def remove_item(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -
     cursor.execute("SELECT id FROM german_items WHERE word = ? AND user_id = ?", (text.strip(), user_id))
     row = cursor.fetchall()
 
-    if row is None:
+    if not len(row):
         return f"Word '{text}' not found in your dictionary."
     else:
         assert len(row) == 1
@@ -223,7 +230,8 @@ def remove_item(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     cursor.execute("DELETE FROM german_items WHERE id = ?", (word_id,))
     cursor.execute("DELETE FROM translations WHERE source_word_id = ?", (word_id,))
-
+    
+    clear(user_id, context)
     conn.commit()
     conn.close()
 
@@ -238,19 +246,19 @@ def handle_response(text: str, update: Update, context: ContextTypes.DEFAULT_TYP
 
     if context.application.user_data[user_id].get("wating_user", False):
         
-        if check_response(processed, context.application.user_data[user_id]['answer_guessing']):
+        if check_response(processed, context.application.user_data[user_id]['answer_guessing'], file_db=db_filename):
             z = sample_word(user_id, db_filename=db_filename) if context.application.user_data[user_id].get("chatting", False) else None
             nextt = []
             if z is not None:
                 context.application.user_data[user_id]['answer_guessing'] = z[-1]
-                nextt = [z[0]]
+                nextt = [z[0] + f"\n|| {z[1]} ||"]
             else : 
                 del context.application.user_data[user_id]['wating_user']
                 del context.application.user_data[user_id]['answer_guessing']
 
-            return [f"Correct!! {''.join(random.sample(list('🥳🎉🎊🤩💅😌💪'),random.randint(2, 4)))}"] + nextt
+            return [f"Correct\!\! {''.join(random.sample(list('🥳🎉🎊🤩💅😌💪'),random.randint(2, 4)))}"] + nextt
         else:
-            return "❌ Incorrect! Try again 🔄😊"
+            return "❌ Incorrect\! Try again 🔄😊"
     elif context.application.user_data[user_id].get("add_items", False):
         return add_items(processed, update, context)
     elif context.application.user_data[user_id].get("remove_items", False):
@@ -271,10 +279,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     print("Bot: ", response)
     if isinstance(response, str):
-        await update.message.reply_text(response)
+        await update.message.reply_text(response, parse_mode="MarkdownV2")
     if isinstance(response, list):
         for r in response:
-            await update.message.reply_text(r, parse_mode="markdown")
+            await update.message.reply_text(r, parse_mode="MarkdownV2")
             await asyncio.sleep(0.5)
 
 async def error(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

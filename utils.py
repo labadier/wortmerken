@@ -12,15 +12,18 @@ def remove_accents(input_str):
     only_ascii = "".join([char for char in nfkd_form if not unicodedata.combining(char)])
     return only_ascii
 
-def check_response(text: str, truth: int, threshold: float = 0.2) -> bool:
+def check_response(text: str, 
+                   truth: str, 
+                   threshold: float = 0.2, 
+                   file_db: str = "data") -> bool:
 
-    conn = sqlite3.connect('data.db')
+    conn = sqlite3.connect(file_db)
     cursor = conn.cursor()
     cursor.execute(f"SELECT * FROM translations WHERE source_word_id = '{truth}'")
 
     rows = cursor.fetchall()
     conn.close()
-
+    print(truth)
     gt = [remove_accents(i[2].strip()) for i in rows]
     
     text = remove_accents(text.strip())
@@ -38,16 +41,22 @@ def sample_word(user_id, db_filename, epsilon = 0.1) -> str:
         cursor.execute(f"SELECT * FROM german_items WHERE user_id = '{user_id}'")
         rows = cursor.fetchall()
         
-        z = [i[4] for i in rows]
-        z = softmax(-np.array(z)).tolist()
-        print(z)
+        z = [i[3] for i in rows]
+
         if np.random.rand() < epsilon:
             index = np.random.choice(len(rows))
         else:
-            index = np.random.choice(len(rows), p=z)
+            index = np.random.choice(np.where(np.array(z) == min(z))[0])
+            print(index, z[index])
             
         cursor.execute(f"UPDATE german_items SET times_guessed = times_guessed + 1 WHERE id = ?", (rows[index][0],))
+
+        cursor.execute(f"SELECT * FROM translations WHERE source_word_id = '{rows[index][0]}'")
+
+        hint = cursor.fetchall()[0][2]
+            
         conn.commit()
         conn.close()
         
-        return rows[index][1], rows[index][3]
+        
+        return rows[index][1], hint + " "*np.random.randint(0, 10), rows[index][0]
