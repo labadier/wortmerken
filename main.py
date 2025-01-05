@@ -11,6 +11,7 @@ import sqlite3, os
 from utils import softmax, check_response, sample_word
 
 
+TOKEN: Final = "7251605109:AAFQDegRjUhXqN-FgkqWkR8BCHE5MyKoULg"
 BOT_USERNAME: Final = "@WortMerkenBot"
 db_filename = 'wortmerken_new.db'
 
@@ -235,7 +236,7 @@ def remove_item(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -
     conn.commit()
     conn.close()
 
-    return f"Word '{text}' removed from your dictionary."
+    return f"Word '{text}' removed from your dictionary\."
 
 
 def handle_response(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:

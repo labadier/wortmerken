@@ -50,7 +50,6 @@ def sample_word(user_id, db_filename, epsilon = 0.1) -> str:
             print(index, z[index])
             
         cursor.execute(f"UPDATE german_items SET times_guessed = times_guessed + 1 WHERE id = ?", (rows[index][0],))
-
         cursor.execute(f"SELECT * FROM translations WHERE source_word_id = '{rows[index][0]}'")
 
         hint = cursor.fetchall()[0][2]
