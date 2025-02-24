@@ -11,9 +11,9 @@ import sqlite3, os
 from utils import softmax, check_response, sample_word
 
 
-TOKEN: Final = "7251605109:AAFQDegRjUhXqN-FgkqWkR8BCHE5MyKoULg"
+TOKEN: Final = os.environ.get("TELEGRAM_BOT_TOKEN", None)
 BOT_USERNAME: Final = "@WortMerkenBot"
-db_filename = 'wortmerken_new.db'
+db_filename = '/workspace/output_database/wortmerken_new.db'
 
 
 async def scheduled_task(context: ContextTypes.DEFAULT_TYPE) -> None:

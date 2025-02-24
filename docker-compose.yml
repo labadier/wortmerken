@@ -1,0 +1,18 @@
+services:
+  app:
+    container_name: labadier_wortmerken
+    image: labadier_wortmerken:latest 
+    build:
+      context: .  # Directory containing the Dockerfile
+      dockerfile: Dockerfile  # Name of your Dockerfile
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - /home/rlabadie:/workspace/output_database 
+    entrypoint: ["python", "/workspace/main.py"]  # Run the application
+
+networks:
+  custom_network_name:
+    name: wortmerken  # You can set the custom network name here
+
+    
