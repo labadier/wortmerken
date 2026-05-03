@@ -7,9 +7,10 @@ services:
       dockerfile: Dockerfile  # Name of your Dockerfile
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./src-python:/workspace 
-    entrypoint: ["python", "/workspace/main.py"]  # Run the application
+    entrypoint: ["python", "-u", "/workspace/main.py"]  # Run the application
 
 networks:
   custom_network_name:
