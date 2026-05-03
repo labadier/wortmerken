@@ -3,17 +3,17 @@ import random
 from typing import Final
 import uuid
 import numpy as np
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 import sqlite3, os
 
-from utils import softmax, check_response, sample_word
+from utils import check_response, sample_word
 
 
 TOKEN: Final = os.environ.get("TELEGRAM_BOT_TOKEN", None)
 BOT_USERNAME: Final = "@WortMerkenBot"
-db_filename = '/workspace/output_database/wortmerken_new.db'
+db_filename = '/workspace/wortmerken.db'
 
 
 async def scheduled_task(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -33,13 +33,21 @@ async def scheduled_task(context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = cursor.fetchall()
     conn.commit()
     conn.close()
-    
+
     if len(rows) >= 5:
         context.application.user_data[user_id]['wating_user'] = True
         z = sample_word(user_id, db_filename=db_filename)
+        if z is None:
+            context.application.user_data[user_id].pop('wating_user', None)
+            return
         context.application.user_data[user_id]['answer_guessing'] = z[-1]
-        await context.bot.send_message(chat_id=context.job.chat_id, 
-                                       text=f"{z[0]}\n|| {z[1]} ||", parse_mode="MarkdownV2")
+
+        # Inline Deactivate button for the presented word
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Deactivate", callback_data=f"deactivate:{z[-1]}")]])
+        await context.bot.send_message(chat_id=context.job.chat_id,
+                                       text=f"{z[0]}\n|| {z[1]} ||",
+                                       parse_mode="MarkdownV2",
+                                       reply_markup=keyboard)
     
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
@@ -87,8 +95,15 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Lets start guessing words! 🤓📚🔍✨")
         await asyncio.sleep(1)
         z = sample_word(user_id, db_filename=db_filename)
+        if z is None:
+            context.application.user_data[user_id].pop('wating_user', None)
+            context.application.user_data[user_id].pop('chatting', None)
+            await update.message.reply_text("You have no active words left to review right now.")
+            return
         context.application.user_data[user_id]['answer_guessing'] = z[-1]
-        await update.message.reply_text(f"{z[0]}\n|| {z[1]} ||", parse_mode="MarkdownV2")
+
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Deactivate", callback_data=f"deactivate:{z[-1]}")]])
+        await update.message.reply_text(f"{z[0]}\n|| {z[1]} ||", parse_mode="MarkdownV2", reply_markup=keyboard)
         
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("This is a help message")
@@ -187,9 +202,9 @@ def add_items(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         row = cursor.fetchall()
 
         if not len(row):
-            # Word does not exist, insert it
+            # Word does not exist, insert it (default: not deactivated)
             word_id = str(uuid.uuid4())
-            cursor.execute("INSERT INTO german_items (id, word, user_id, times_guessed) VALUES (?, ?, ?, ?)", (word_id, word.strip(), user_id, mean_prompts))
+            cursor.execute("INSERT INTO german_items (id, word, user_id, times_guessed, is_deactivated) VALUES (?, ?, ?, ?, ?)", (word_id, word.strip(), user_id, mean_prompts, 0))
             brand_new += ['']
         else:
             assert len(row) == 1
@@ -252,7 +267,8 @@ def handle_response(text: str, update: Update, context: ContextTypes.DEFAULT_TYP
             nextt = []
             if z is not None:
                 context.application.user_data[user_id]['answer_guessing'] = z[-1]
-                nextt = [z[0] + f"\n|| {z[1]} ||"]
+                # return a special tuple so message_handler can attach the Deactivate button
+                nextt = [('word_with_button', z[0], z[1], z[-1])]
             else : 
                 del context.application.user_data[user_id]['wating_user']
                 del context.application.user_data[user_id]['answer_guessing']
@@ -283,11 +299,43 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(response, parse_mode="MarkdownV2")
     if isinstance(response, list):
         for r in response:
-            await update.message.reply_text(r, parse_mode="MarkdownV2")
+            # support tuple items for specially-sent messages: ('word_with_button', text, hint, word_id)
+            if isinstance(r, tuple) and len(r) and r[0] == 'word_with_button':
+                _, text, hint, wid = r
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Deactivate", callback_data=f"deactivate:{wid}")]])
+                await update.message.reply_text(f"{text}\n|| {hint} ||", parse_mode="MarkdownV2", reply_markup=keyboard)
+            else:
+                await update.message.reply_text(r, parse_mode="MarkdownV2")
             await asyncio.sleep(0.5)
 
 async def error(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     print(f"Update {update} caused error {context.error}")
+
+
+async def deactivate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    data = query.data or ""
+    if not data.startswith("deactivate:"):
+        return
+    word_id = data.split(":", 1)[1]
+
+    # mark word as deactivated in DB
+    conn = sqlite3.connect(db_filename)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE german_items SET is_deactivated = 1 WHERE id = ?", (word_id,))
+    conn.commit()
+    conn.close()
+
+    # update message to reflect the change
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.edit_message_text(query.message.text + "\n\n(Deactivated)")
+    except Exception:
+        # fallback: send confirmation
+        await query.message.reply_text("Word deactivated.")
 
 
 def initialize_database():
@@ -323,7 +371,8 @@ def initialize_database():
             id TEXT PRIMARY KEY,
             word TEXT NOT NULL,
             user_id TEXT NOT NULL,
-            times_guessed INTEGER NOT NULL DEFAULT 0
+            times_guessed INTEGER NOT NULL DEFAULT 0,
+            is_deactivated INTEGER NOT NULL DEFAULT 0
         )
     ''')
 
@@ -348,6 +397,9 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("add_items", add_items_command))
     app.add_handler(CommandHandler("set_timer", set_scheduled_wort_timer))
     app.add_handler(CommandHandler("remove_item", remove_item_command))
+
+    # Callback handler for inline buttons
+    app.add_handler(CallbackQueryHandler(deactivate_callback))
 
     # Messages
     app.add_handler(MessageHandler(filters.TEXT, message_handler))

@@ -12,7 +12,7 @@ WORKDIR /workspace
 RUN chown -R app:app /workspace
 RUN chmod -R a+rw /workspace
 
-COPY --chown=app:app src-python /workspace
+COPY --chown=app:app src-python/requirements.txt /workspace/requirements.txt
 
 RUN python -m pip install --upgrade pip && pip install --root-user-action=ignore -r requirements.txt
 
