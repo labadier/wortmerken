@@ -204,7 +204,7 @@ def add_items(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not len(row):
             # Word does not exist, insert it (default: not deactivated)
             word_id = str(uuid.uuid4())
-            cursor.execute("INSERT INTO german_items (id, word, user_id, times_guessed, is_deactivated) VALUES (?, ?, ?, ?, ?)", (word_id, word.strip(), user_id, mean_prompts, 0))
+            cursor.execute("INSERT INTO german_items (id, word, user_id, times_guessed, is_deactivated) VALUES (?, ?, ?, ?, ?)", (word_id, word.strip(), user_id, item(mean_prompts), 0))
             brand_new += ['']
         else:
             assert len(row) == 1
